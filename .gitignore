@@ -30,6 +30,9 @@ Thumbs.db
 .env
 .env.local
 
+# Git worktrees
+.worktrees/
+
 
 # Configs
 
