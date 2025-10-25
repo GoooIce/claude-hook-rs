@@ -3,9 +3,55 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Supported configuration file names in order of priority
+pub const CONFIG_FILE_NAMES: &[&str] = &[
+    ".claude.toml",                    // New default file name
+    ".claude-hook-advisor.toml",       // Legacy file name (backward compatibility)
+];
+
+/// Default configuration file name
+pub const DEFAULT_CONFIG_FILE: &str = ".claude.toml";
+
+/// Backup file suffix for migration
+pub const BACKUP_SUFFIX: &str = ".backup";
+
+/// Configuration-related errors
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Configuration file not found: {0}")]
+    NotFound(String),
+
+    #[error("Failed to parse configuration: {0}")]
+    ParseError(String),
+
+    #[error("Migration failed: {0}")]
+    MigrationFailed(String),
+
+    #[error("Backup creation failed: {0}")]
+    BackupFailed(String),
+
+    #[error("Invalid configuration format: {0}")]
+    InvalidFormat(String),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+}
+
+impl From<toml::de::Error> for ConfigError {
+    fn from(err: toml::de::Error) -> Self {
+        ConfigError::ParseError(err.to_string())
+    }
+}
+
+impl From<anyhow::Error> for ConfigError {
+    fn from(err: anyhow::Error) -> Self {
+        ConfigError::InvalidFormat(err.to_string())
+    }
+}
+
 /// Configuration structure for command mappings and directory aliasing.
-/// 
-/// Loaded from .claude-hook-advisor.toml files, this struct contains
+///
+/// Loaded from .claude.toml or .claude-hook-advisor.toml files, this struct contains
 /// the mapping from original commands to their preferred replacements
 /// and semantic directory aliases for natural language references.
 #[derive(Debug, Deserialize, Serialize)]

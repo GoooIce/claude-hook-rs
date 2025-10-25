@@ -1,0 +1,47 @@
+# Claude Hook Advisor Configuration
+# This file maps commands to preferred alternatives and defines semantic directory aliases
+
+[commands]
+# Node.js / JavaScript Development - Prefer Bun over npm/yarn
+npm = "bun"
+yarn = "bun"
+npx = "bunx"
+
+# Python Development - Use uv for faster package management
+pip = "uv pip"
+"pip install" = "uv add"
+"pip uninstall" = "uv remove"
+python = "uv run python"
+
+# Modern CLI Tool Replacements
+cat = "bat"                    # Syntax highlighting
+ls = "eza"                     # Better file listing
+find = "fd"                    # Faster file search
+grep = "rg"                    # Faster text search (ripgrep)
+curl = "wget --verbose"        # Alternative HTTP client
+wget = "curl -L"               # Alternative download tool
+
+# Git Enhancements
+"git push" = "git push --set-upstream origin HEAD"
+"git commit" = "git commit -S"  # Always sign commits
+
+# Modern Build Tools
+make = "just"                  # Modern command runner
+cmake = "meson"               # Modern build system
+
+# Text Editors
+vim = "nvim"                  # Neovim instead of vim
+nano = "micro"                # Modern terminal editor
+
+# System Monitoring
+top = "htop"                  # Better process viewer
+
+[semantic_directories]
+# Natural language directory aliases - use quoted, space-separated names
+"project docs" = "~/Documents/Documentation/my-project"
+"central docs" = "~/Documents/Documentation"
+"claude docs" = "~/Documents/Documentation/claude"
+"test data" = "~/Documents/test-data"
+"docs" = "~/Documents/Documentation"
+"source code" = "~/src"
+"projects" = "~/Projects"
