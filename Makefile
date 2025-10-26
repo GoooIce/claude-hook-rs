@@ -54,6 +54,20 @@ check:
 run-example:
 	echo '{"session_id":"test","transcript_path":"","cwd":"","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"npm install","description":"Install packages"}}' | cargo run -- --hook
 
+# Test configuration features
+test-config:
+	cargo run -- --check-config
+
+# Test migration (requires legacy config)
+test-migration:
+	cp .claude.toml .claude-hook-advisor.toml && rm .claude.toml
+	cargo run -- --migrate-config
+	cargo run -- --check-config
+
+# Create example config
+create-config:
+	cargo run -- --init-config
+
 
 # Show help
 help:
@@ -69,4 +83,7 @@ help:
 	@echo "  lint          - Run clippy linting"
 	@echo "  check         - Check code without building"
 	@echo "  run-example   - Test with example JSON input"
+	@echo "  test-config   - Test configuration status check"
+	@echo "  test-migration - Test configuration migration"
+	@echo "  create-config - Create example configuration file"
 	@echo "  help          - Show this help"

@@ -1,6 +1,6 @@
 //! Hook processing logic
 
-use crate::config::load_config;
+use crate::config::{load_config_auto, load_config_from_path};
 use crate::directory::detect_directory_references;
 use crate::types::{Config, HookInput, HookOutput};
 use anyhow::{Context, Result};
@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::{self, Read};
+use std::path::Path;
 use std::sync::Mutex;
 
 /// Cache for compiled regex patterns to avoid recompilation
@@ -30,7 +31,11 @@ static REGEX_CACHE: Lazy<Mutex<HashMap<String, Regex>>> = Lazy::new(|| Mutex::ne
 /// * `Err` - If JSON parsing or configuration loading fails
 pub fn run_as_hook(config_path: &str, replace_mode: bool) -> Result<()> {
     // Read configuration
-    let config = load_config(config_path)?;
+    let config = if config_path.is_empty() {
+        load_config_auto()?
+    } else {
+        load_config_from_path(Path::new(config_path))?
+    };
 
     // Read JSON input from stdin
     let mut buffer = String::new();

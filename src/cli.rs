@@ -1,7 +1,8 @@
 //! CLI interface and main entry point
 
 use crate::hooks::run_as_hook;
-use crate::Config;
+use crate::config::{find_config_file, load_config_from_path, migrate_config, needs_migration};
+use crate::types::{ConfigError, DEFAULT_CONFIG_FILE, Config};
 use anyhow::{Context, Result};
 use clap::{Arg, Command};
 use std::fs;
@@ -23,7 +24,7 @@ pub fn run_cli() -> Result<()> {
                 .long("config")
                 .value_name("FILE")
                 .help("Path to configuration file")
-                .default_value(".claude-hook-advisor.toml"),
+                .default_value(DEFAULT_CONFIG_FILE),
         )
         .arg(
             Arg::new("hook")
@@ -49,6 +50,24 @@ pub fn run_cli() -> Result<()> {
                 .help("Remove Claude Hook Advisor hooks from Claude Code settings")
                 .action(clap::ArgAction::SetTrue),
         )
+        .arg(
+            Arg::new("check-config")
+                .long("check-config")
+                .help("Check configuration file status and migration needs")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("migrate-config")
+                .long("migrate-config")
+                .help("Migrate configuration from old file name to new format")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("init-config")
+                .long("init-config")
+                .help("Create example configuration file")
+                .action(clap::ArgAction::SetTrue),
+        )
         .get_matches();
 
     let config_path = matches.get_one::<String>("config")
@@ -61,19 +80,14 @@ pub fn run_cli() -> Result<()> {
         run_smart_installation(config_path)
     } else if matches.get_flag("uninstall") {
         crate::installer::uninstall_claude_hooks()
+    } else if matches.get_flag("check-config") {
+        check_config_status()
+    } else if matches.get_flag("migrate-config") {
+        run_config_migration()
+    } else if matches.get_flag("init-config") {
+        create_example_config()
     } else {
-        println!("Claude Hook Advisor v{}", env!("CARGO_PKG_VERSION"));
-        println!();
-        println!("Installation:");
-        println!("  --install                 Install Claude Hook Advisor: configure hooks and create/update config file");
-        println!();
-        println!("Command Mapping:");
-        println!("  --hook                    Run as a Claude Code hook");
-        println!();
-        println!("Configuration:");
-        println!("  -c, --config <FILE>       Path to config file [default: .claude-hook-advisor.toml]");
-        println!();
-        println!("To configure directory aliases and command mappings, edit .claude-hook-advisor.toml directly.");
+        print_help();
         Ok(())
     }
 }
@@ -389,6 +403,238 @@ fn ensure_config_sections(config_path: &str) -> Result<()> {
     Ok(())
 }
 
+
+/// Prints comprehensive help information including new configuration features.
+fn print_help() {
+    println!("Claude Hook Advisor v{}", env!("CARGO_PKG_VERSION"));
+    println!();
+    println!("Installation:");
+    println!("  --install                 Install Claude Hook Advisor: configure hooks and create/update config file");
+    println!("  --uninstall               Remove Claude Hook Advisor hooks from Claude Code settings");
+    println!();
+    println!("Command Mapping:");
+    println!("  --hook                    Run as a Claude Code hook");
+    println!();
+    println!("Configuration:");
+    println!("  -c, --config <FILE>       Path to config file [default: {}]", DEFAULT_CONFIG_FILE);
+    println!("  --check-config            Check configuration file status and migration needs");
+    println!("  --migrate-config          Migrate configuration from old file name to new format");
+    println!("  --init-config             Create example configuration file");
+    println!();
+    println!("Configuration Files:");
+    println!("  {}                       New default configuration file name", DEFAULT_CONFIG_FILE);
+    println!("  .claude-hook-advisor.toml  Legacy configuration file name (still supported)");
+    println!();
+    println!("Examples:");
+    println!("  claude-hook-advisor --install           # Install hooks and create config");
+    println!("  claude-hook-advisor --check-config       # Check configuration status");
+    println!("  claude-hook-advisor --migrate-config     # Migrate to new file name");
+    println!("  claude-hook-advisor --init-config        # Create example config");
+    println!();
+    println!("To configure directory aliases and command mappings, edit {} directly.", DEFAULT_CONFIG_FILE);
+}
+
+/// Check configuration file status and migration needs.
+fn check_config_status() -> Result<()> {
+    println!("🔍 Configuration Status Check");
+    println!("============================\n");
+
+    match find_config_file() {
+        Ok(config_path) => {
+            println!("✅ Configuration file found: {}", config_path.display());
+
+            // Check if it's the old file name
+            if config_path.ends_with(".claude-hook-advisor.toml") {
+                println!("⚠️  Using legacy configuration file name");
+                println!("💡 Consider migrating to the new file name: {}", DEFAULT_CONFIG_FILE);
+                println!("   Run 'claude-hook-advisor --migrate-config' to migrate automatically");
+            } else {
+                println!("✅ Using current configuration file name");
+            }
+
+            // Try to load and validate the configuration
+            match load_config_from_path(&config_path) {
+                Ok(config) => {
+                    println!("✅ Configuration file is valid");
+                    println!("   📝 {} command mappings defined", config.commands.len());
+                    println!("   📁 {} semantic directories defined", config.semantic_directories.len());
+
+                    if config.commands.is_empty() && config.semantic_directories.is_empty() {
+                        println!("💡 Configuration is empty. Add some mappings or run 'claude-hook-advisor --init-config' for examples");
+                    }
+                }
+                Err(e) => {
+                    println!("❌ Configuration file error: {}", e);
+                    return Err(e.context("Configuration validation failed"));
+                }
+            }
+        }
+        Err(ConfigError::NotFound(_)) => {
+            println!("❌ No configuration file found");
+            println!("💡 Create one with: claude-hook-advisor --init-config");
+            println!("   Or install with: claude-hook-advisor --install");
+        }
+        Err(e) => {
+            println!("❌ Error checking configuration: {}", e);
+            return Err(anyhow::anyhow!("Configuration check failed: {}", e));
+        }
+    }
+
+    // Check for migration needs
+    if let Some(old_config_path) = needs_migration() {
+        println!("⚠️  Migration available:");
+        println!("   📄 Old file: {}", old_config_path.display());
+        println!("   📄 New file: {}", DEFAULT_CONFIG_FILE);
+        println!("   Run 'claude-hook-advisor --migrate-config' to migrate");
+    } else {
+        println!("✅ No migration needed");
+    }
+
+    Ok(())
+}
+
+/// Run configuration migration from old file name to new format.
+fn run_config_migration() -> Result<()> {
+    println!("🔄 Configuration Migration");
+    println!("========================\n");
+
+    // Check if migration is needed
+    if let Some(old_config_path) = needs_migration() {
+        println!("📄 Migrating from: {}", old_config_path.display());
+        println!("📄 Migrating to: {}", DEFAULT_CONFIG_FILE);
+        println!();
+
+        match migrate_config() {
+            Ok(new_path) => {
+                println!("✅ Migration completed successfully!");
+                println!("📄 New configuration file: {}", new_path.display());
+                println!("💾 Backup created: {}.backup", old_config_path.display());
+                println!();
+                println!("🎉 Your configuration has been migrated to the new file name.");
+                println!("   The old file has been backed up with .backup extension.");
+                println!("   You can safely remove the backup file if everything works correctly.");
+            }
+            Err(e) => {
+                println!("❌ Migration failed: {}", e);
+                return Err(anyhow::anyhow!("Configuration migration failed: {}", e));
+            }
+        }
+    } else {
+        // Check if old file exists at all
+        let old_config = Path::new(".claude-hook-advisor.toml");
+        let new_config = Path::new(DEFAULT_CONFIG_FILE);
+
+        if old_config.exists() && new_config.exists() {
+            println!("ℹ️  Both configuration files exist:");
+            println!("   📄 Legacy: {}", old_config.display());
+            println!("   📄 Current: {}", new_config.display());
+            println!("💡 Consider removing the legacy file if it's no longer needed");
+        } else if new_config.exists() {
+            println!("✅ Already using current configuration file format");
+            println!("📄 Configuration file: {}", new_config.display());
+        } else {
+            println!("ℹ️  No legacy configuration file found");
+            println!("💡 Create a new configuration with: claude-hook-advisor --init-config");
+        }
+    }
+
+    Ok(())
+}
+
+/// Create an example configuration file.
+fn create_example_config() -> Result<()> {
+    println!("📝 Creating Example Configuration");
+    println!("================================\n");
+
+    let config_path = Path::new(DEFAULT_CONFIG_FILE);
+
+    if config_path.exists() {
+        println!("⚠️  Configuration file already exists: {}", config_path.display());
+        print!("Do you want to overwrite it? [y/N]: ");
+        use std::io::{self, Write};
+        io::stdout().flush().unwrap();
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if !input.trim().to_lowercase().starts_with('y') {
+            println!("❌ Configuration creation cancelled");
+            return Ok(());
+        }
+
+        // Create backup of existing file
+        let backup_path = config_path.with_extension("toml.backup");
+        fs::copy(config_path, &backup_path).context("Failed to create backup")?;
+        println!("💾 Existing configuration backed up to: {}", backup_path.display());
+    }
+
+    // Create example configuration content
+    let example_config = r#"# Claude Hook Advisor Configuration
+# This file maps commands to preferred alternatives and defines semantic directory aliases
+
+[commands]
+# Node.js / JavaScript Development - Prefer Bun over npm/yarn
+npm = "bun"
+yarn = "bun"
+npx = "bunx"
+
+# Python Development - Use uv for faster package management
+pip = "uv pip"
+"pip install" = "uv add"
+"pip uninstall" = "uv remove"
+python = "uv run python"
+
+# Modern CLI Tool Replacements
+cat = "bat"                    # Syntax highlighting
+ls = "eza"                     # Better file listing
+find = "fd"                    # Faster file search
+grep = "rg"                    # Faster text search (ripgrep)
+curl = "wget --verbose"        # Alternative HTTP client
+wget = "curl -L"               # Alternative download tool
+
+# Git Enhancements
+"git push" = "git push --set-upstream origin HEAD"
+"git commit" = "git commit -S"  # Always sign commits
+
+# Modern Build Tools
+make = "just"                  # Modern command runner
+cmake = "meson"               # Modern build system
+
+# Text Editors
+vim = "nvim"                  # Neovim instead of vim
+nano = "micro"                # Modern terminal editor
+
+# System Monitoring
+top = "htop"                  # Better process viewer
+
+[semantic_directories]
+# Natural language directory aliases - use quoted, space-separated names
+"project docs" = "~/Documents/Documentation/my-project"
+"central docs" = "~/Documents/Documentation"
+"claude docs" = "~/Documents/Documentation/claude"
+"test data" = "~/Documents/test-data"
+"docs" = "~/Documents/Documentation"
+"source code" = "~/src"
+"projects" = "~/Projects"
+"#;
+
+    fs::write(config_path, example_config).context("Failed to write configuration file")?;
+
+    println!("✅ Example configuration created: {}", config_path.display());
+    println!();
+    println!("📚 Configuration includes:");
+    println!("   • {} command mappings", example_config.lines().filter(|l| l.trim().starts_with(|c: char| c.is_alphanumeric() || c == '"')).count());
+    println!("   • {} semantic directory aliases", example_config.lines().filter(|l| l.trim().starts_with('"')).count());
+    println!();
+    println!("💡 Edit the configuration file to customize for your preferences:");
+    println!("   - Add your preferred command mappings");
+    println!("   - Define semantic directory aliases for natural language references");
+    println!("   - Remove examples you don't need");
+    println!();
+    println!("🚀 After configuring, install hooks with: claude-hook-advisor --install");
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
